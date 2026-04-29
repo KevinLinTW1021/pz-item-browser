@@ -1,12 +1,5 @@
 """
 Generate the single-page item browser HTML.
-
-Inputs:
-  data/items.json       (parse_items.py output)
-  data/recipes.json     (parse_recipes.py output) — optional
-  output/icon_index.json (extract_packs.py output)
-
-Output: <html_path>
 """
 
 import json
@@ -32,6 +25,11 @@ def main():
     for it in items:
         icon_raw = first(it.get("Icon", "")) or ""
         icon_file = icon_index.get(f"Item_{icon_raw}", {}).get("file") if icon_raw else None
+        weight_str = first(it.get("Weight", "")) or ""
+        try:
+            weight_num = float(weight_str)
+        except (TypeError, ValueError):
+            weight_num = 0.0
         minimal.append({
             "name": it.get("_name", ""),
             "module": it.get("_module", ""),
@@ -39,7 +37,8 @@ def main():
             "display": first(it.get("DisplayName", "")) or it.get("_name", ""),
             "type": first(it.get("Type", "")) or "",
             "cat": first(it.get("DisplayCategory", "")) or "",
-            "weight": first(it.get("Weight", "")) or "",
+            "weight": weight_str,
+            "weight_num": weight_num,
             "icon": icon_file or "",
         })
 
@@ -62,8 +61,6 @@ def main():
     print(f"Generated: {out_path}")
     print(f"  items: {len(minimal)}, recipes: {len(recipes)}")
     print(f"  types: {len(types)}, categories: {len(cats)}")
-    with_icon = sum(1 for m in minimal if m["icon"])
-    print(f"  items with icon: {with_icon} ({100*with_icon//len(minimal)}%)")
 
 
 HTML_TEMPLATE = r"""<!doctype html>
@@ -82,6 +79,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     --accent: #c9a25b;
     --hit: #4a3f2c;
     --good: #6b9a4a;
+    --star: #d4a93f;
   }
   * { box-sizing: border-box; }
   body {
@@ -92,31 +90,39 @@ HTML_TEMPLATE = r"""<!doctype html>
   header {
     position: sticky; top: 0; z-index: 10;
     background: var(--panel); border-bottom: 1px solid var(--border);
-    padding: 10px 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    padding: 10px 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
   }
-  header h1 { margin: 0; font-size: 16px; color: var(--accent); }
-  header .stat { color: var(--dim); margin-left: auto; }
+  header h1 { margin: 0 8px 0 0; font-size: 16px; color: var(--accent); white-space: nowrap; }
+  header .stat { color: var(--dim); margin-left: auto; white-space: nowrap; }
   input[type=search], select, input.player {
     background: #1a1815; color: var(--text); border: 1px solid var(--border);
     padding: 6px 10px; border-radius: 4px; font: inherit;
   }
-  input[type=search] { min-width: 280px; }
-  .checkbox-label {
+  input[type=search] { min-width: 240px; flex: 1; }
+  input[type=range] { vertical-align: middle; }
+  .checkbox-label, .slider-label {
     display: inline-flex; align-items: center; gap: 6px;
     color: var(--text); cursor: pointer;
     background: #1a1815; padding: 6px 10px; border-radius: 4px;
     border: 1px solid var(--border); user-select: none;
   }
-  .checkbox-label:hover { border-color: var(--accent); }
+  .checkbox-label:hover, .slider-label:hover { border-color: var(--accent); }
   .checkbox-label input { margin: 0; cursor: pointer; }
+  .slider-label.disabled { opacity: 0.4; pointer-events: none; }
+  .slider-label .skill-val { color: var(--accent); min-width: 14px; text-align: right; }
   .player-name {
     background: #1a1815; padding: 6px 10px; border-radius: 4px;
-    border: 1px solid var(--border); color: var(--accent);
+    border: 1px solid var(--border); color: var(--accent); white-space: nowrap;
   }
   .player-name input {
     background: transparent; border: none; color: var(--accent);
-    font: inherit; width: 120px; outline: none;
+    font: inherit; width: 90px; outline: none;
   }
+  .kbd-hint {
+    color: var(--dim); font-size: 11px; padding: 4px 8px;
+    border: 1px solid var(--border); border-radius: 3px;
+  }
+
   #grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -129,8 +135,17 @@ HTML_TEMPLATE = r"""<!doctype html>
     position: relative;
   }
   .card:hover { background: var(--hit); border-color: var(--accent); }
-  .card.has-recipe::after {
-    content: ""; position: absolute; top: 4px; right: 4px;
+  .card .star {
+    position: absolute; top: 4px; right: 4px;
+    width: 22px; height: 22px; cursor: pointer;
+    color: #555; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 3px;
+  }
+  .card .star:hover { background: var(--bg); color: var(--star); }
+  .card .star.active { color: var(--star); }
+  .card .recipe-dot {
+    position: absolute; top: 4px; right: 30px;
     width: 6px; height: 6px; border-radius: 50%; background: var(--good);
   }
   .icon-wrap {
@@ -143,7 +158,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   .icon-wrap.empty { color: #4a443a; font-size: 10px; }
   .icon-wrap.small { width: 28px; height: 28px; }
   .icon-wrap.small img { max-width: 24px; max-height: 24px; }
-  .meta { flex: 1; min-width: 0; }
+  .meta { flex: 1; min-width: 0; padding-right: 24px; }
   .meta .name { font-weight: bold; margin-bottom: 2px;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta .id { color: var(--dim); font-family: monospace; font-size: 11px;
@@ -156,7 +171,6 @@ HTML_TEMPLATE = r"""<!doctype html>
   footer .disclaimer p { margin: 6px auto; max-width: 720px; }
   footer a { color: var(--accent); }
 
-  /* Toast */
   #toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     background: var(--accent); color: #1a1815; padding: 10px 20px; border-radius: 4px;
@@ -165,7 +179,6 @@ HTML_TEMPLATE = r"""<!doctype html>
   }
   #toast.show { opacity: 1; }
 
-  /* Modal */
   #backdrop {
     position: fixed; inset: 0; background: rgba(0,0,0,.6);
     display: none; align-items: center; justify-content: center;
@@ -174,7 +187,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   #backdrop.open { display: flex; }
   #modal {
     background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
-    width: 100%; max-width: 720px; max-height: 90vh; overflow: auto;
+    width: 100%; max-width: 760px; max-height: 90vh; overflow: auto;
     padding: 0; box-shadow: 0 10px 30px rgba(0,0,0,.5);
   }
   #modal .modal-head {
@@ -187,6 +200,10 @@ HTML_TEMPLATE = r"""<!doctype html>
   #modal .modal-head h2 { margin: 0 0 4px; font-size: 18px; color: var(--accent); }
   #modal .modal-head .id { color: var(--dim); font-family: monospace; font-size: 12px; }
   #modal .modal-head .stats { font-size: 12px; color: #a89878; margin-top: 4px; }
+  #modal .modal-head .star-big {
+    cursor: pointer; font-size: 26px; color: #555; padding: 6px 10px;
+  }
+  #modal .modal-head .star-big.active { color: var(--star); }
   #modal .close {
     cursor: pointer; padding: 6px 10px; border-radius: 3px;
     background: var(--panel2); border: 1px solid var(--border); color: var(--text);
@@ -206,10 +223,9 @@ HTML_TEMPLATE = r"""<!doctype html>
     font-weight: normal;
   }
   #modal .actions button:hover { filter: brightness(1.1); }
-  #modal .recipes {
-    padding: 14px 16px;
-  }
-  #modal .recipes h3 {
+  #modal .section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  #modal .section:last-child { border-bottom: none; }
+  #modal .section h3 {
     margin: 0 0 8px; font-size: 13px; color: var(--accent);
     text-transform: uppercase; letter-spacing: 1px;
   }
@@ -232,27 +248,45 @@ HTML_TEMPLATE = r"""<!doctype html>
   #modal .ingredient.tool .ing-qty { background: transparent; color: #6a8a4a; }
   #modal .clickable { cursor: pointer; color: var(--text); border-bottom: 1px dotted var(--dim); }
   #modal .clickable:hover { color: var(--accent); border-bottom-color: var(--accent); }
-  #modal .no-recipes {
-    padding: 20px; text-align: center; color: var(--dim);
-    font-style: italic;
+  #modal .none-msg { padding: 12px; color: var(--dim); font-style: italic; }
+  #modal .recipe-result {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel2); padding: 4px 8px; border-radius: 3px;
+    margin-top: 6px; font-size: 11px;
   }
+  #modal .recipe-result .icon-wrap.small { width: 20px; height: 20px; }
+  #modal .recipe-result .icon-wrap.small img { max-width: 18px; max-height: 18px; }
 </style>
 </head>
 <body>
 <header>
   <h1>PZ Item Browser</h1>
-  <input id="search" type="search" placeholder="Search name / id / category...">
+  <input id="search" type="search" placeholder="Search name / id / category... (press / to focus)">
   <select id="filter-type"><option value="">All types</option></select>
   <select id="filter-cat"><option value="">All categories</option></select>
+  <select id="sort">
+    <option value="name">Sort: Name A-Z</option>
+    <option value="name-desc">Sort: Name Z-A</option>
+    <option value="weight">Sort: Weight ↑</option>
+    <option value="weight-desc">Sort: Weight ↓</option>
+    <option value="type">Sort: Type</option>
+    <option value="cat">Sort: Category</option>
+  </select>
   <label class="checkbox-label"><input id="filter-craftable" type="checkbox"> Craftable only</label>
+  <label class="checkbox-label"><input id="filter-favorite" type="checkbox"> ★ Favorites</label>
+  <label id="skill-label" class="slider-label disabled" title="Only items craftable with this skill level or lower">
+    Max skill: <input id="filter-skill" type="range" min="0" max="10" value="10"> <span class="skill-val">10</span>
+  </label>
   <span class="player-name">Player: <input id="playername" class="player" value="kdog"></span>
   <span class="stat" id="stat">__COUNT__ items</span>
 </header>
 <div id="grid"></div>
 <div id="empty">No items match.</div>
 <footer>
-  <p>Click any item to see details &amp; recipes. Use <strong>Copy /additem</strong> in the modal to copy the admin spawn command.</p>
-  <p style="font-size: 11px; opacity: 0.7;">Items with a green dot have a known recipe in the vanilla scripts.</p>
+  <p>Click any item to see details, recipes, and where it's used. Bookmark with ★ — favorites stay across reloads.</p>
+  <p style="font-size: 11px; opacity: 0.7;">
+    Keyboard: <span class="kbd-hint">/</span> focus search · <span class="kbd-hint">Esc</span> close modal
+  </p>
   <hr style="border-color: var(--border); margin: 12px auto; max-width: 800px;">
   <div class="disclaimer">
     <p><strong>This is an unofficial community / admin tool. Not affiliated with The Indie Stone Ltd.</strong></p>
@@ -280,7 +314,6 @@ HTML_TEMPLATE = r"""<!doctype html>
 </footer>
 
 <div id="toast"></div>
-
 <div id="backdrop"></div>
 
 <script>
@@ -290,28 +323,65 @@ const RECIPES = PAYLOAD.recipes;
 const TYPES = PAYLOAD.types;
 const CATS = PAYLOAD.cats;
 
-// Build lookup maps
-const ITEM_BY_NAME = new Map();   // bare name (no module) -> item
-const ITEM_BY_ID = new Map();     // Module.Name -> item
+// Lookup maps
+const ITEM_BY_NAME = new Map();
+const ITEM_BY_ID = new Map();
 for (const it of ITEMS) {
   ITEM_BY_NAME.set(it.name, it);
   ITEM_BY_ID.set(it.id, it);
 }
-
-// Recipes that produce a given item id
-const RECIPES_BY_RESULT = new Map();
+const RECIPES_BY_RESULT = new Map();    // item.id -> [recipes producing it]
+const RECIPES_BY_INGREDIENT = new Map(); // ingredient name (bare or Module.X) -> [recipes using it]
 for (const r of RECIPES) {
-  if (!r.result_id) continue;
-  if (!RECIPES_BY_RESULT.has(r.result_id)) RECIPES_BY_RESULT.set(r.result_id, []);
-  RECIPES_BY_RESULT.get(r.result_id).push(r);
+  if (r.result_id) {
+    if (!RECIPES_BY_RESULT.has(r.result_id)) RECIPES_BY_RESULT.set(r.result_id, []);
+    RECIPES_BY_RESULT.get(r.result_id).push(r);
+  }
+  for (const ing of r.ingredients) {
+    for (const nm of [ing.name, ...(ing.alts || [])]) {
+      const key = nm.indexOf(".") >= 0 ? nm : nm; // store bare names; Module.X variants stored too
+      if (!RECIPES_BY_INGREDIENT.has(key)) RECIPES_BY_INGREDIENT.set(key, []);
+      const list = RECIPES_BY_INGREDIENT.get(key);
+      if (list.indexOf(r) < 0) list.push(r);
+    }
+  }
 }
 
+// Min skill level needed for any recipe producing an item
+// (a craftable item is "easier" if there's at least one low-skill recipe).
+const MIN_SKILL_BY_RESULT = new Map();
+for (const [id, list] of RECIPES_BY_RESULT) {
+  let min = Infinity;
+  for (const r of list) {
+    const lv = r.skill_level || 0;
+    if (lv < min) min = lv;
+  }
+  MIN_SKILL_BY_RESULT.set(id, min === Infinity ? 0 : min);
+}
+
+// Favorites: localStorage
+const FAV_KEY = "pz_browser_favorites_v1";
+function loadFavs() {
+  try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || "[]")); }
+  catch (e) { return new Set(); }
+}
+function saveFavs(set) {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify([...set])); } catch (e) {}
+}
+const FAVORITES = loadFavs();
+
+// DOM refs
 const $ = (s) => document.querySelector(s);
 const grid = $("#grid");
 const search = $("#search");
 const filterType = $("#filter-type");
 const filterCat = $("#filter-cat");
 const filterCraftable = $("#filter-craftable");
+const filterFavorite = $("#filter-favorite");
+const filterSkill = $("#filter-skill");
+const skillLabel = $("#skill-label");
+const skillValDisplay = skillLabel.querySelector(".skill-val");
+const sortSelect = $("#sort");
 const stat = $("#stat");
 const empty = $("#empty");
 const toast = $("#toast");
@@ -342,19 +412,16 @@ function fallbackCopy(text) {
 }
 
 function findIngredientItem(rawName) {
-  // ingredient names in PZ recipes are usually bare (no module). Could also be Base.X.
-  if (rawName.indexOf(".") >= 0) {
-    return ITEM_BY_ID.get(rawName);
-  }
+  if (rawName.indexOf(".") >= 0) return ITEM_BY_ID.get(rawName);
   return ITEM_BY_NAME.get(rawName);
 }
 
-function renderIcon(itemOrIconFile, small=false) {
+function renderIcon(itemOrFile, small=false) {
   const wrap = document.createElement("div");
   wrap.className = "icon-wrap" + (small ? " small" : "");
   let iconFile = "";
-  if (typeof itemOrIconFile === "string") iconFile = itemOrIconFile;
-  else if (itemOrIconFile) iconFile = itemOrIconFile.icon || "";
+  if (typeof itemOrFile === "string") iconFile = itemOrFile;
+  else if (itemOrFile) iconFile = itemOrFile.icon || "";
   if (iconFile) {
     const img = document.createElement("img");
     img.src = "icons/" + iconFile;
@@ -368,11 +435,23 @@ function renderIcon(itemOrIconFile, small=false) {
   return wrap;
 }
 
+function toggleFavorite(itemId, btn) {
+  if (FAVORITES.has(itemId)) {
+    FAVORITES.delete(itemId);
+    if (btn) btn.classList.remove("active");
+  } else {
+    FAVORITES.add(itemId);
+    if (btn) btn.classList.add("active");
+  }
+  saveFavs(FAVORITES);
+  // Re-render if "Favorites only" filter is active so the deselected card disappears
+  if (filterFavorite.checked) render();
+}
+
 function makeCard(item) {
   const card = document.createElement("div");
   card.className = "card";
   card.title = item.id;
-  if (RECIPES_BY_RESULT.has(item.id)) card.classList.add("has-recipe");
 
   card.appendChild(renderIcon(item));
 
@@ -387,8 +466,24 @@ function makeCard(item) {
   if (item.type) { const s = document.createElement("span"); s.textContent = item.type; tags.appendChild(s); }
   if (item.cat) { const s = document.createElement("span"); s.textContent = item.cat; tags.appendChild(s); }
   meta.appendChild(name); meta.appendChild(id); meta.appendChild(tags);
-
   card.appendChild(meta);
+
+  if (RECIPES_BY_RESULT.has(item.id)) {
+    const dot = document.createElement("span");
+    dot.className = "recipe-dot"; dot.title = "Has recipe";
+    card.appendChild(dot);
+  }
+
+  const star = document.createElement("span");
+  star.className = "star" + (FAVORITES.has(item.id) ? " active" : "");
+  star.textContent = "★";
+  star.title = "Bookmark";
+  star.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleFavorite(item.id, star);
+  });
+  card.appendChild(star);
+
   card.addEventListener("click", () => openModal(item));
   return card;
 }
@@ -430,7 +525,7 @@ function buildIngredientRow(ing) {
   return row;
 }
 
-function buildRecipeBlock(rec) {
+function buildRecipeBlock(rec, showResult=false) {
   const box = document.createElement("div");
   box.className = "recipe";
   const name = document.createElement("div");
@@ -453,6 +548,21 @@ function buildRecipeBlock(rec) {
   ings.className = "ingredients";
   for (const i of rec.ingredients) ings.appendChild(buildIngredientRow(i));
   box.appendChild(ings);
+
+  if (showResult && rec.result_id) {
+    const resItem = ITEM_BY_ID.get(rec.result_id);
+    const resBox = document.createElement("div");
+    resBox.className = "recipe-result";
+    resBox.appendChild(document.createTextNode("→ "));
+    resBox.appendChild(renderIcon(resItem, true));
+    const span = document.createElement("span");
+    span.className = "clickable";
+    span.textContent = (resItem ? (resItem.display || resItem.name) : rec.result_id) +
+                       (rec.result_count > 1 ? ` × ${rec.result_count}` : "");
+    if (resItem) span.addEventListener("click", (e) => { e.stopPropagation(); openModal(resItem); });
+    resBox.appendChild(span);
+    box.appendChild(resBox);
+  }
   return box;
 }
 
@@ -462,7 +572,7 @@ function openModal(item) {
   const modal = document.createElement("div");
   modal.id = "modal";
 
-  // Head
+  // --- Head ---
   const head = document.createElement("div");
   head.className = "modal-head";
   head.appendChild(renderIcon(item));
@@ -479,12 +589,20 @@ function openModal(item) {
   stats.textContent = sBits.join("  ·  ");
   info.appendChild(stats);
   head.appendChild(info);
-  const closeBtn = document.createElement("button"); closeBtn.className = "close"; closeBtn.textContent = "✕ Close";
+
+  const starBtn = document.createElement("span");
+  starBtn.className = "star-big" + (FAVORITES.has(item.id) ? " active" : "");
+  starBtn.textContent = "★";
+  starBtn.title = "Bookmark";
+  starBtn.addEventListener("click", () => toggleFavorite(item.id, starBtn));
+  head.appendChild(starBtn);
+
+  const closeBtn = document.createElement("button"); closeBtn.className = "close"; closeBtn.textContent = "✕";
   closeBtn.addEventListener("click", closeModal);
   head.appendChild(closeBtn);
   modal.appendChild(head);
 
-  // Actions
+  // --- Actions ---
   const actions = document.createElement("div");
   actions.className = "actions";
   const copyBtn = document.createElement("button");
@@ -498,22 +616,38 @@ function openModal(item) {
   actions.appendChild(copyBtn);
   modal.appendChild(actions);
 
-  // Recipes
-  const wrap = document.createElement("div");
-  wrap.className = "recipes";
+  // --- How to craft ---
+  const craftSection = document.createElement("div");
+  craftSection.className = "section";
   const recipesForItem = RECIPES_BY_RESULT.get(item.id) || [];
   if (recipesForItem.length) {
     const h3 = document.createElement("h3");
     h3.textContent = `How to craft  (${recipesForItem.length} recipe${recipesForItem.length>1?"s":""})`;
-    wrap.appendChild(h3);
-    for (const r of recipesForItem) wrap.appendChild(buildRecipeBlock(r));
+    craftSection.appendChild(h3);
+    for (const r of recipesForItem) craftSection.appendChild(buildRecipeBlock(r));
   } else {
+    const h3 = document.createElement("h3"); h3.textContent = "How to craft";
+    craftSection.appendChild(h3);
     const none = document.createElement("div");
-    none.className = "no-recipes";
-    none.textContent = "No recipe found in vanilla scripts. Use the /additem command above to spawn directly.";
-    wrap.appendChild(none);
+    none.className = "none-msg";
+    none.textContent = "No recipe found in vanilla scripts. Use /additem to spawn directly.";
+    craftSection.appendChild(none);
   }
-  modal.appendChild(wrap);
+  modal.appendChild(craftSection);
+
+  // --- Used in ---
+  const usedRecipes = (RECIPES_BY_INGREDIENT.get(item.name) || [])
+    .concat(RECIPES_BY_INGREDIENT.get(item.id) || [])
+    .filter((r, i, arr) => arr.indexOf(r) === i);   // dedupe
+  if (usedRecipes.length) {
+    const usedSection = document.createElement("div");
+    usedSection.className = "section";
+    const h3 = document.createElement("h3");
+    h3.textContent = `Used in  (${usedRecipes.length} recipe${usedRecipes.length>1?"s":""})`;
+    usedSection.appendChild(h3);
+    for (const r of usedRecipes) usedSection.appendChild(buildRecipeBlock(r, /*showResult=*/true));
+    modal.appendChild(usedSection);
+  }
 
   backdrop.appendChild(modal);
   backdrop.classList.add("open");
@@ -527,26 +661,58 @@ function closeModal() {
 backdrop.addEventListener("click", (e) => {
   if (e.target === backdrop) closeModal();
 });
+
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeModal();
+  if (e.key === "Escape") {
+    if (backdrop.classList.contains("open")) closeModal();
+    return;
+  }
+  if (e.key === "/" && document.activeElement !== search) {
+    e.preventDefault();
+    search.focus();
+    search.select();
+  }
 });
 
-// Render grid
+// Sort comparators
+const SORTERS = {
+  "name":       (a, b) => (a.display || a.name).localeCompare(b.display || b.name),
+  "name-desc":  (a, b) => (b.display || b.name).localeCompare(a.display || a.name),
+  "weight":     (a, b) => a.weight_num - b.weight_num,
+  "weight-desc":(a, b) => b.weight_num - a.weight_num,
+  "type":       (a, b) => (a.type||"").localeCompare(b.type||"") || (a.display||a.name).localeCompare(b.display||b.name),
+  "cat":        (a, b) => (a.cat||"").localeCompare(b.cat||"")  || (a.display||a.name).localeCompare(b.display||b.name),
+};
+
 function render() {
   const q = search.value.trim().toLowerCase();
   const tFilt = filterType.value;
   const cFilt = filterCat.value;
   const onlyCraftable = filterCraftable.checked;
-  const filtered = ITEMS.filter((it) => {
+  const onlyFavorite = filterFavorite.checked;
+  const maxSkill = parseInt(filterSkill.value, 10);
+
+  // Skill slider only meaningful when filtering craftable
+  skillLabel.classList.toggle("disabled", !onlyCraftable);
+
+  let filtered = ITEMS.filter((it) => {
     if (tFilt && it.type !== tFilt) return false;
     if (cFilt && it.cat !== cFilt) return false;
     if (onlyCraftable && !RECIPES_BY_RESULT.has(it.id)) return false;
+    if (onlyCraftable) {
+      const need = MIN_SKILL_BY_RESULT.get(it.id) || 0;
+      if (need > maxSkill) return false;
+    }
+    if (onlyFavorite && !FAVORITES.has(it.id)) return false;
     if (q) {
       const hay = (it.name + " " + it.display + " " + it.id + " " + it.type + " " + it.cat).toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     return true;
   });
+
+  filtered.sort(SORTERS[sortSelect.value] || SORTERS.name);
+
   grid.innerHTML = "";
   const frag = document.createDocumentFragment();
   for (const it of filtered) frag.appendChild(makeCard(it));
@@ -563,6 +729,12 @@ search.addEventListener("input", () => {
 filterType.addEventListener("change", render);
 filterCat.addEventListener("change", render);
 filterCraftable.addEventListener("change", render);
+filterFavorite.addEventListener("change", render);
+sortSelect.addEventListener("change", render);
+filterSkill.addEventListener("input", () => {
+  skillValDisplay.textContent = filterSkill.value;
+  if (filterCraftable.checked) render();
+});
 
 render();
 </script>
