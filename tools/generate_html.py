@@ -101,6 +101,14 @@ HTML_TEMPLATE = r"""<!doctype html>
     padding: 6px 10px; border-radius: 4px; font: inherit;
   }
   input[type=search] { min-width: 280px; }
+  .checkbox-label {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--text); cursor: pointer;
+    background: #1a1815; padding: 6px 10px; border-radius: 4px;
+    border: 1px solid var(--border); user-select: none;
+  }
+  .checkbox-label:hover { border-color: var(--accent); }
+  .checkbox-label input { margin: 0; cursor: pointer; }
   .player-name {
     background: #1a1815; padding: 6px 10px; border-radius: 4px;
     border: 1px solid var(--border); color: var(--accent);
@@ -236,6 +244,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   <input id="search" type="search" placeholder="Search name / id / category...">
   <select id="filter-type"><option value="">All types</option></select>
   <select id="filter-cat"><option value="">All categories</option></select>
+  <label class="checkbox-label"><input id="filter-craftable" type="checkbox"> Craftable only</label>
   <span class="player-name">Player: <input id="playername" class="player" value="kdog"></span>
   <span class="stat" id="stat">__COUNT__ items</span>
 </header>
@@ -302,6 +311,7 @@ const grid = $("#grid");
 const search = $("#search");
 const filterType = $("#filter-type");
 const filterCat = $("#filter-cat");
+const filterCraftable = $("#filter-craftable");
 const stat = $("#stat");
 const empty = $("#empty");
 const toast = $("#toast");
@@ -526,9 +536,11 @@ function render() {
   const q = search.value.trim().toLowerCase();
   const tFilt = filterType.value;
   const cFilt = filterCat.value;
+  const onlyCraftable = filterCraftable.checked;
   const filtered = ITEMS.filter((it) => {
     if (tFilt && it.type !== tFilt) return false;
     if (cFilt && it.cat !== cFilt) return false;
+    if (onlyCraftable && !RECIPES_BY_RESULT.has(it.id)) return false;
     if (q) {
       const hay = (it.name + " " + it.display + " " + it.id + " " + it.type + " " + it.cat).toLowerCase();
       if (hay.indexOf(q) < 0) return false;
@@ -550,6 +562,7 @@ search.addEventListener("input", () => {
 });
 filterType.addEventListener("change", render);
 filterCat.addEventListener("change", render);
+filterCraftable.addEventListener("change", render);
 
 render();
 </script>
